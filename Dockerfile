@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y \
     unzip \
     libzip-dev \
     libcurl4-openssl-dev \
-    && docker-php-ext-install zip curl pdo pdo_mysql \
+    && docker-php-ext-install zip curl \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -16,10 +16,6 @@ RUN a2enmod rewrite && \
 
 # Set working directory
 WORKDIR /var/www/html
-
-
-# Install dependencies
-RUN composer install --no-dev --optimize-autoloader --no-interaction
 
 # Copy application
 COPY . .
