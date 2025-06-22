@@ -1,125 +1,156 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>VPN Detection Status</title>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
-  
-  <script src="vpndetector.js"></script>
-  
-  <style>
-    body {
-      font-family: 'Poppins', sans-serif;
-      background: linear-gradient(to right, #1e3c72, #2a5298);
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      margin: 0;
-    }
+class VPNDetector {
+	constructor(clientIP) {
+		this.clientIP = clientIP;
+		this.leakedIP = null;
+		this.vpnResult = '';
+		this.knownVPNISPs = ['aws', 'alibaba', 'ovh', 'ionos'];
+		this.ISPRegex = new RegExp(this.knownVPNISPs.join('|'), 'i');
+	}
 
-    .card {
-      background-color: #ffffff10;
-      backdrop-filter: blur(12px);
-      padding: 30px 40px;
-      border-radius: 20px;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-      text-align: center;
-      max-width: 400px;
-      width: 100%;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-    }
+	async detect() {
+		try {
+			if (!this.clientIP || !this.isValidIP(this.clientIP)) {
+				this.vpnResult = 'Invalid IP address';
+				return this.vpnResult;
+			}
 
-    .card h1 {
-      font-size: 24px;
-      margin-bottom: 20px;
-      color: #ffffffcc;
-    }
+			if (this.isWebRTCAvailable()) {
+				this.leakedIP = await this.getWebRTCIPLeak();
 
-    .status {
-      font-size: 20px;
-      font-weight: 600;
-      padding: 10px 15px;
-      border-radius: 8px;
-      display: inline-block;
-      margin-top: 10px;
-    }
+				if (!this.leakedIP || !this.isValidIP(this.leakedIP)) {
+					return await this.checkISP();
+				}
 
-    .status.safe {
-      background-color: #28a745cc;
-    }
+				if (this.leakedIP !== this.clientIP) {
+					this.vpnResult = 'VPN Detected';
+					return this.vpnResult;
+				} else {
+					return await this.checkISP();
+				}
+			} else {
+				console.warn('WebRTC is disabled or blocked.');
+				return await this.checkISP();
+			}
+		} catch (error) {
+			console.error('Detection failed:', error);
+			this.vpnResult = 'VPN status unknown.';
+			return this.vpnResult;
+		}
+	}
 
-    .status.vpn {
-      background-color: #dc3545cc;
-    }
+	isValidIP(ip) {
+		// Must match IPv4 format
+		const regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+		if (!regex.test(ip)) return false;
 
-    .status.unknown {
-      background-color: #ffc107cc;
-      color: #333;
-    }
+		const parts = ip.split('.').map(Number);
+		if (parts.some(part => part < 0 || part > 255)) return false;
 
-    .loading {
-      font-size: 16px;
-      opacity: 0.7;
-      margin-top: 10px;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>VPN Detection Result</h1>
-    <div id="status" class="status unknown">Checking...</div>
-    <div class="loading" id="loading">Running network checks...</div>
-  </div>
+		// Check for private/reserved ranges
+		const [a, b] = parts;
 
+		if (
+			a === 10 ||                             // 10.0.0.0 – 10.255.255.255
+			(a === 172 && b >= 16 && b <= 31) ||   // 172.16.0.0 – 172.31.255.255
+			(a === 192 && b === 168) ||            // 192.168.0.0 – 192.168.255.255
+			ip === "127.0.0.1"                     // Loopback
+		) {
+			return false;
+		}
 
-  <script>
-    window.onload = async function () {
-      const statusEl = document.getElementById('status');
-      const loadingEl = document.getElementById('loading');
+		return true;
+	}
 
-      try {
-        const res = await fetch('https://maxmovies.onrender.com/getip.php');
-        if (!res.ok) throw new Error("Failed to fetch IP");
-        const data = await res.json();
+	isWebRTCAvailable() {
+		return !!(window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection);
+	}
 
-        const vpn = new VPNDetector(data.ip);
-        const result = await vpn.detect();
+	async getWebRTCIPLeak() {
+		return new Promise((resolve) => {
+			const RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection;
 
-        loadingEl.style.display = 'none';
+			const pc = new RTCPeerConnection({
+				iceServers: [
+					{ urls: 'stun:stun.l.google.com:19302' },
+					{ urls: 'stun:stun.12connect.com' },
+					{ urls: 'stun:stun.services.mozilla.com' }
+				]
+			});
 
-        if (result.toLowerCase().includes("invalid")) {
-          statusEl.textContent = result;
-          statusEl.classList.add("vpn");
-          statusEl.style.background = "red";
-          statusEl.style.color = "white";
-             
-        }
-        else if (result == "Not connected to VPN server") {
-        	statusEl.textContent = result;
-        	statusEl.classList.add("vpn");
-        	statusEl.style.background = "green";
-        	statusEl.style.color = "white";
-        	       	
-        }
-        
-        else if (result.toLowerCase().includes("not connected")) {
-          statusEl.textContent = result;
-          statusEl.classList.add("safe");
-        } else {
-          statusEl.textContent = result;
-          statusEl.classList.add("unknown");
-        }
+			pc.createDataChannel('');
+			pc.createOffer()
+				.then(offer => pc.setLocalDescription(offer))
+				.catch(() => resolve(null));
 
-      } catch (err) {
-        statusEl.textContent = "Error checking VPN status";
-        statusEl.classList.add("unknown");
-        loadingEl.style.display = 'none';
-        console.error(err);
-      }
-    };
-  </script>
-</body>
-</html>
+			pc.onicecandidate = (e) => {
+				if (!e.candidate) {
+					pc.close();
+					resolve(null);
+				} else if (e.candidate.candidate.includes('typ srflx')) {
+					const match = e.candidate.candidate.match(/([0-9]{1,3}(?:\.[0-9]{1,3}){3})/);
+					if (match) {
+						pc.close();
+						resolve(match[1]);
+					}
+				}
+			};
+		});
+	}
+
+	async checkISP() {
+		const methods = [
+			this.checkWithIPWhois.bind(this),
+			this.checkWithIPInfo.bind(this),
+			this.checkWithIPApi.bind(this)
+		];
+
+		for (const method of methods) {
+			const result = await method();
+			if (result !== null) {
+				this.vpnResult = result ? 'Not connected to VPN server' : 'VPN Detected';
+				return this.vpnResult;
+			}
+		}
+
+		this.vpnResult = 'VPN status unknown';
+		return this.vpnResult;
+	}
+
+	async checkWithIPWhois() {
+		try {
+			const res = await fetch(`https://ipwho.is/${this.clientIP}`);
+			if (!res.ok) return null;
+			const data = await res.json();
+			const org = (data.connection?.org || '').toLowerCase();
+			const isp = (data.connection?.isp || '').toLowerCase();
+			return !(this.ISPRegex.test(org) || this.ISPRegex.test(isp));
+		} catch {
+			return null;
+		}
+	}
+
+	async checkWithIPInfo() {
+		try {
+			const res = await fetch(`https://ipinfo.io/${this.clientIP}/json`);
+			if (!res.ok) return null;
+			const data = await res.json();
+			const org = (data.org || '').toLowerCase();
+			return !this.ISPRegex.test(org);
+		} catch {
+			return null;
+		}
+	}
+
+	async checkWithIPApi() {
+		try {
+			const res = await fetch(`https://ip-api.com/json/${this.clientIP}`);
+			if (!res.ok) return null;
+			const data = await res.json();
+			const isp = (data.isp || '').toLowerCase();
+			const org = (data.org || '').toLowerCase();
+			return !(this.ISPRegex.test(isp) || this.ISPRegex.test(org));
+		} catch {
+			return null;
+		}
+	}
+}
