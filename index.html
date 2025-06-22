@@ -74,18 +74,18 @@
     <div class="loading" id="loading">Running network checks...</div>
   </div>
 
-  <script src="vpn-detector.js"></script> <!-- Your VPNDetector class -->
+
   <script>
     window.onload = async function () {
       const statusEl = document.getElementById('status');
       const loadingEl = document.getElementById('loading');
 
       try {
-        const res = await fetch('https://maxmovies.onrender.com/getip.php');
-        if (!res.ok) throw new Error("Failed to fetch IP");
-        const data = await res.json();
+		const res = await fetch("https://api64.ipify.org?format=json");
+		const data = await res.json();
+		const clientIP = data.ip;
 
-        const vpn = new VPNDetector(data.ip);
+        const vpn = new VPNDetector(clientIP);
         const result = await vpn.detect();
 
         loadingEl.style.display = 'none';
@@ -118,7 +118,6 @@
         statusEl.classList.add("unknown");
         loadingEl.style.display = 'none';
         console.error(err);
-        alert(err);
       }
     };
   </script>
