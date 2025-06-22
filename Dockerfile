@@ -9,8 +9,6 @@ RUN apt-get update && apt-get install -y \
     && docker-php-ext-install zip curl pdo pdo_mysql \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Configure Apache
 RUN a2enmod rewrite && \
@@ -19,8 +17,6 @@ RUN a2enmod rewrite && \
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy composer files first (for caching)
-COPY composer.json composer.lock ./
 
 # Install dependencies
 RUN composer install --no-dev --optimize-autoloader --no-interaction
