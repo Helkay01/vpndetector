@@ -3,26 +3,21 @@ class VPNDetector {
 		this.clientIP = clientIP;
 		this.leakedIP = null;
 		this.vpnResult = '';
-		this.knownVPNISPs = [
-			'aws',
-			'alibaba',
-			'ovh',
-			'ionos'
-		];
+		this.knownVPNISPs = ['aws', 'alibaba', 'ovh', 'ionos'];
 		this.ISPRegex = new RegExp(this.knownVPNISPs.join('|'), 'i');
 	}
 
 	async detect() {
 		try {
-			if (!this.clientIP) {
-				this.vpnResult = 'Client IP not provided.';
+			if (!this.clientIP || !this.isValidIP(this.clientIP)) {
+				this.vpnResult = 'Invalid IP address';
 				return this.vpnResult;
 			}
 
 			if (this.isWebRTCAvailable()) {
 				this.leakedIP = await this.getWebRTCIPLeak();
 
-				if (!this.leakedIP) {
+				if (!this.leakedIP || !this.isValidIP(this.leakedIP)) {
 					return await this.checkISP();
 				}
 
@@ -41,6 +36,29 @@ class VPNDetector {
 			this.vpnResult = 'VPN status unknown.';
 			return this.vpnResult;
 		}
+	}
+
+	isValidIP(ip) {
+		// Must match IPv4 format
+		const regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+		if (!regex.test(ip)) return false;
+
+		const parts = ip.split('.').map(Number);
+		if (parts.some(part => part < 0 || part > 255)) return false;
+
+		// Check for private/reserved ranges
+		const [a, b] = parts;
+
+		if (
+			a === 10 ||                             // 10.0.0.0 – 10.255.255.255
+			(a === 172 && b >= 16 && b <= 31) ||   // 172.16.0.0 – 172.31.255.255
+			(a === 192 && b === 168) ||            // 192.168.0.0 – 192.168.255.255
+			ip === "127.0.0.1"                     // Loopback
+		) {
+			return false;
+		}
+
+		return true;
 	}
 
 	isWebRTCAvailable() {
